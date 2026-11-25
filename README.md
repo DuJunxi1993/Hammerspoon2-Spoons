@@ -75,5 +75,5 @@ PaperWM.start();
 
 MIT，见 [LICENSE](LICENSE)。
 
-`upstream/` 目录内的 Hammerspoon 2 源码版权归原作者所有，
+Hammerspoon 2 源码版权归原作者所有，
 遵循其原有许可证，仅作参考与构建用途。
