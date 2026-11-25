@@ -175,6 +175,54 @@ PaperWM.toggleFloating = function (win) {
     return PaperWM;
 };
 
+/**
+ * 解释一个窗口为什么被（或没被）平铺。
+ *
+ * 排查问题用："这个窗口怎么没进布局？"
+ *
+ * @param {object} win HSWindow，默认当前焦点窗口
+ * @returns {string}
+ */
+PaperWM.explainWindow = function (win) {
+    const target = win || hs.window.focusedWindow();
+    return filter.explain(target);
+};
+
+/**
+ * 设置弹出式窗口规则。
+ *
+ * 命中的窗口会被当成浮动窗口：出现时不影响现有布局，自己能拖能聚焦。
+ *
+ *     PaperWM.setPanelRules([
+ *         { app: "某个应用", title: "^设置$" },
+ *     ]);
+ *
+ * @param {Array<{app?: string, title?: string}>} rules
+ */
+PaperWM.setPanelRules = function (rules) {
+    filter.setPanelRules(rules);
+    PaperWM.refreshWindows();
+    return PaperWM;
+};
+
+/**
+ * 设置弹出式窗口白名单。
+ *
+ * 命中的窗口一定是普通窗口，一定参与平铺——哪怕它长得像面板
+ * （没有放大按钮、identifier 带 panel 之类的）。
+ *
+ *     PaperWM.setPanelWhiteList([
+ *         { app: "另一个应用", title: "^我的面板$" },
+ *     ]);
+ *
+ * @param {Array<{app?: string, title?: string}>} rules
+ */
+PaperWM.setPanelWhiteList = function (rules) {
+    filter.setPanelWhiteList(rules);
+    PaperWM.refreshWindows();
+    return PaperWM;
+};
+
 /** 切换焦点窗口所在列的手风琴叠放 */
 PaperWM.toggleStack = function () {
     actions.toggleStack();
@@ -229,6 +277,9 @@ module.exports = {
     setBundleFilter: PaperWM.setBundleFilter,
     setScreens: PaperWM.setScreens,
     resetRules: PaperWM.resetRules,
+    explainWindow: PaperWM.explainWindow,
+    setPanelRules: PaperWM.setPanelRules,
+    setPanelWhiteList: PaperWM.setPanelWhiteList,
     toggleFloating: PaperWM.toggleFloating,
     toggleStack: PaperWM.toggleStack,
     splitScreen: PaperWM.splitScreen,

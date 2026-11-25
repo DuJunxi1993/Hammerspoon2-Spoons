@@ -18,6 +18,7 @@
 "use strict";
 
 const state = require("./state");
+const axutil = require("./axutil");
 const { config, DEFAULT_GAP } = require("./config");
 const animate = require("./animate");
 const stack = require("./stack");
@@ -445,6 +446,8 @@ function pruneDeadWindows(spaceId) {
                 state.tracked.delete(win.id);
                 state.expected.delete(win.id);
                 state.floating.delete(win.id);
+                state.transient.delete(win.id);
+                axutil.forget(win.id);
                 const positions = state.xPositions.get(spaceId);
                 if (positions) positions.delete(win.id);
                 const anchor = state.anchors.get(spaceId);

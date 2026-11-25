@@ -21,6 +21,7 @@
 const state = require("./state");
 const { config } = require("./config");
 const filter = require("./filter");
+const axutil = require("./axutil");
 const ax = require("./ax");
 const tiling = require("./tiling");
 const actions = require("./actions");
@@ -35,6 +36,7 @@ const RETILE_DEBOUNCE = 0.06;
 function log(...args) {
     console.log.apply(console, ["PaperWM:"].concat(args));
 }
+
 
 /** 窗口被我们自己的布局改动过吗？（是的话忽略这次事件） */
 function isSelfInflicted(winId, actualFrame) {
@@ -124,9 +126,12 @@ function watchWindow(win) {
         case ax.SHORT.uIElementDestroyed: {
             // 窗口被关掉了
             state.windowWatchers.delete(win.id);
+            axutil.forget(win.id);
             if (state.floating.has(win.id)) {
-                state.floating.delete(win.id);
-                actions.persistFloating();
+                // 浮动窗口（含弹出式窗口）没了：从浮动列表里摘掉。
+                // 弹出式窗口不写 userdefaults，用完就没了。
+                actions.unfloat(win);
+                state.tracked.delete(win.id);
                 return;
             }
             const index = state.index.get(win.id);
@@ -220,11 +225,13 @@ function watchApplication(app) {
             const focused = hs.window.focusedWindow();
             if (focused) {
                 const wasManaged = state.index.has(focused.id);
-                state.prevFocused = focused;
+                if (!state.transient.has(focused.id)) {
+                    state.prevFocused = focused;
+                }
 
                 if (!wasManaged && !state.floating.has(focused.id)) {
-                    // 新获得焦点但还没纳管（例如从浮动变平铺）
-                    const spaceId = actions.addWindow(focused);
+                    // 新获得焦点但还没纳管（新建的窗口，或者从浮动变平铺）
+                    const spaceId = adoptFocusedWindow(focused);
                     if (spaceId != null) tiling.tileSpace(spaceId);
                 } else {
                     // 焦点换到别的窗口 → 布局跟着动，
@@ -272,8 +279,42 @@ function windowIdOf(element) {
 }
 
 /**
+ * 把一个"刚获得焦点、但还没纳管"的窗口收编。
+ *
+ * @param {object} focused HSWindow
+ * @returns {number|null} 如果往布局里加了窗口，返回它所在的 Space id，
+ *                         调用方需要重排；弹出式窗口返回 null（布局不动）
+ */
+function adoptFocusedWindow(focused) {
+    if (!focused) return null;
+
+    const kind = filter.classify(focused);
+    if (kind === "ignore") return null;
+
+    if (kind === "float") {
+        // 弹出式窗口（文件选择面板、sheet、模态框……）：只跟踪，不动布局。
+        // 面板抢焦点是常事，但绝不能因此打乱现有的平铺布局。
+        actions.makeFloating(focused, true);
+        state.tracked.set(focused.id, focused);
+        watchWindow(focused);
+        return null;
+    }
+
+    return actions.addWindow(focused);
+}
+
+/**
  * 把某个应用里新出现的窗口纳入布局。
+ *
  * 做法是拿这个应用当前的窗口列表，和我们已经跟踪的做差。
+ *
+ * 新窗口分三种：
+ *   · 普通窗口     → 加进布局，然后重排
+ *   · 弹出式窗口   → 当成浮动窗口跟踪，**布局一个像素都不动**
+ *   · 不该管的     → 跳过
+ *
+ * 最后一条是关键：文件选择面板这类窗口一冒出来就占掉一列的话，
+ * 整个布局会被挤歪，面板一关又会触发"列被删掉但索引表没重建"的问题。
  */
 function adoptNewWindows(app) {
     let windows;
@@ -287,7 +328,19 @@ function adoptNewWindows(app) {
     let spaceId = null;
     for (const win of windows) {
         if (state.index.has(win.id) || state.floating.has(win.id)) continue;
-        if (!filter.isAllowed(win)) continue;
+
+        const kind = filter.classify(win, false);
+        if (kind === "ignore") continue;
+
+        if (kind === "float") {
+            // 弹出式窗口：只跟踪，不进布局。
+            // 注意这里**不重排**——弹窗出现不该影响现有窗口。
+            actions.makeFloating(win, true);
+            state.tracked.set(win.id, win);
+            watchWindow(win);
+            continue;
+        }
+
         const added = actions.addWindow(win);
         if (added != null) {
             spaceId = added;
@@ -295,6 +348,8 @@ function adoptNewWindows(app) {
         }
     }
 
+    // 只有真的往布局里加了窗口才重排。
+    // 弹出式窗口出现时，一个像素都不该动。
     if (spaceId != null) tiling.tileSpace(spaceId);
 }
 
@@ -340,16 +395,50 @@ function watchScreens() {
 function rebuildSpace(spaceId) {
     if (spaceId == null) return;
 
-    const windows = filter.managedWindows();
     const columns = tiling.columnsFor(spaceId);
 
     // 记下原来的列结构，作为"放回原位"的依据
     const previous = columns.map((column) => column.slice());
 
+    const all = filter.allWindows();
+
+    // hs.window.allWindows() 偶尔会因为某个应用正忙（AX 查询超时）
+    // 漏掉它的窗口。已经纳管的窗口补回来——不能因为一次读取失败
+    // 就把人家踢出布局。
+    const seen = new Set(all.map((w) => w.id));
+    for (const column of previous) {
+        for (const win of column) {
+            if (!win || seen.has(win.id)) continue;
+            seen.add(win.id);
+            all.push(win);
+        }
+    }
+
     // 这个 Space 上的窗口，按水平位置排序（没有位置信息的排最后）
     const onSpace = [];
-    for (const win of windows) {
-        if (state.floating.has(win.id)) continue;
+    for (const win of all) {
+        // 已经纳管的窗口：AX 读数不可靠时不要把它踢出去
+        const kind = filter.classify(win, state.index.has(win.id));
+
+        if (kind === "float") {
+            // 弹出式窗口：当成浮动窗口跟踪，不进布局
+            if (!state.floating.has(win.id)) {
+                actions.makeFloating(win, true);
+                state.tracked.set(win.id, win);
+                watchWindow(win);
+            }
+            continue;
+        }
+        if (kind !== "tile") continue;
+
+        // 之前因为规则被判成浮动，现在规则改了 → 恢复成平铺窗口
+        if (state.transient.has(win.id)) {
+            actions.unfloat(win);
+        } else if (state.floating.has(win.id)) {
+            // 用户手动设的浮动窗口，保持浮动
+            continue;
+        }
+
         const spaces = win.spaces;
         if (!spaces.some((s) => s.id === spaceId)) continue;
         onSpace.push(win);
@@ -361,52 +450,56 @@ function rebuildSpace(spaceId) {
         return (fa.x + fa.w / 2) - (fb.x + fb.w / 2);
     });
 
-    // 已经在旧列里的窗口，回到原来的列；新窗口按位置插入
-    const newColumns = [];
-    const columnOf = new Map();   // windowId -> 该窗口所在的新列
+    // 已经在旧列里的窗口，回到原来的列；新窗口按位置插入。
+    //
+    // 这里要注意列号的换算：插入一个新列之后，后面所有列的序号都会
+    // 往前挪一位。要是拿旧的列号直接往数组里塞，原本不相干的两个
+    // 窗口会被塞进同一列——布局看起来就乱了。
+    //
+    // 所以先按"旧列号"分组，再排序展开，最后才把新窗口插进来，
+    // 这样旧列的身份从头到尾都不会错位。
+    const groups = new Map();    // 旧列号 -> 这一列剩下的窗口
+    const newcomers = [];        // 不在旧列里的新窗口
 
     for (const win of onSpace) {
-        let target = -1;
+        let oldCol = -1;
         for (let col = 0; col < previous.length; col++) {
             if (previous[col].some((w) => w.id === win.id)) {
-                target = col;
+                oldCol = col;
                 break;
             }
         }
-
-        if (target >= 0) {
-            // 沿用原来的列号
-            while (newColumns.length <= target) newColumns.push([]);
-            newColumns[target].push(win);
-            columnOf.set(win.id, target);
+        if (oldCol >= 0) {
+            if (!groups.has(oldCol)) groups.set(oldCol, []);
+            groups.get(oldCol).push(win);
         } else {
-            // 新窗口：插到它当前水平位置所对应的列里
-            const frame = win.frame;
-            let insertAt = newColumns.length;
-            if (frame) {
-                const center = frame.x + frame.w / 2;
-                for (let col = 0; col < newColumns.length; col++) {
-                    const first = newColumns[col][0];
-                    const otherFrame = first && first.frame;
-                    if (!otherFrame) continue;
-                    if (center < otherFrame.x + otherFrame.w / 2) {
-                        insertAt = col;
-                        break;
-                    }
-                }
-            }
-            newColumns.splice(insertAt, 0, [win]);
-            // 插入之后，后面的列号都变了
-            for (const [id, col] of columnOf) {
-                if (col >= insertAt) columnOf.set(id, col + 1);
-            }
-            columnOf.set(win.id, insertAt);
+            newcomers.push(win);
         }
     }
 
-    // 去掉空列
-    for (let i = newColumns.length - 1; i >= 0; i--) {
-        if (!newColumns[i] || newColumns[i].length === 0) newColumns.splice(i, 1);
+    // 旧列按原来的顺序展开。空了的列（窗口都走了）自然消失，
+    // 不用事后再去清理空数组。
+    const newColumns = [...groups.keys()]
+        .sort((a, b) => a - b)
+        .map((oldCol) => groups.get(oldCol));
+
+    // 新窗口：按它当前的水平位置插进来
+    for (const win of newcomers) {
+        const frame = win.frame;
+        let insertAt = newColumns.length;
+        if (frame) {
+            const center = frame.x + frame.w / 2;
+            for (let col = 0; col < newColumns.length; col++) {
+                const first = newColumns[col][0];
+                const otherFrame = first && first.frame;
+                if (!otherFrame) continue;
+                if (center < otherFrame.x + otherFrame.w / 2) {
+                    insertAt = col;
+                    break;
+                }
+            }
+        }
+        newColumns.splice(insertAt, 0, [win]);
     }
 
     // 换掉旧的列结构，并把索引表里属于这个 Space 的条目清掉重建
@@ -461,6 +554,16 @@ function start() {
         if (!focused) return;
         // 焦点没变就别动——应用激活事件比焦点事件频繁得多
         if (state.lastFocusedId === focused.id) return;
+
+        // 弹出式窗口（文件选择面板）抢了焦点：把它当成浮动窗口跟踪，
+        // 但**不要动布局**。面板关掉以后焦点会回到原来的窗口，
+        // 那时布局本来就没变过，也不需要重排。
+        if (!state.index.has(focused.id) && !state.floating.has(focused.id)) {
+            const spaceId = adoptFocusedWindow(focused);
+            if (spaceId != null) tiling.tileSpace(spaceId);
+            return;
+        }
+
         focusFollows(focused);
     };
 
@@ -521,9 +624,11 @@ function stop() {
     state.tracked.clear();
     state.anchors.clear();
     state.floating.clear();
+    state.transient.clear();
     state.expected.clear();
     state.prevFocused = null;
     state.lastFocusedId = null;
+    axutil.clearCache();
     animate.cancelAll();
 }
 

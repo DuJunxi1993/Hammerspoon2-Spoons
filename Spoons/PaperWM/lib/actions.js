@@ -691,6 +691,44 @@ function isFloating(win) {
     return state.floating.has(win.id);
 }
 
+/**
+ * 把窗口设成浮动窗口。
+ *
+ * @param {object} win HSWindow
+ * @param {boolean} transient true = 弹出式窗口（文件选择面板之类）。
+ *        它用完就没了，不写进 userdefaults；下次启动也不会被恢复。
+ * @returns {number|null} 如果窗口原来在布局里，返回它所在 Space 的 id
+ */
+function makeFloating(win, transient) {
+    if (!win) return null;
+    // 先从布局里摘出来（万一它已经在布局里了），
+    // 顺序不能反——removeWindow 会把浮动标记抹掉。
+    const spaceId = removeWindow(win, true);
+    state.floating.add(win.id);
+    if (transient) {
+        state.transient.add(win.id);
+    } else {
+        state.transient.delete(win.id);
+        persistFloating();
+    }
+    return spaceId;
+}
+
+/**
+ * 取消浮动状态。
+ *
+ * @param {boolean} keepTransient 内部用：只是把弹出式窗口从浮动里摘掉，
+ *        不写 userdefaults。
+ */
+function unfloat(win, keepTransient) {
+    if (!win) return null;
+    const wasTransient = state.transient.has(win.id);
+    state.floating.delete(win.id);
+    state.transient.delete(win.id);
+    if (!keepTransient && !wasTransient) persistFloating();
+    return null;
+}
+
 /** 切换窗口的浮动状态 */
 function toggleFloating(win) {
     const target = win || focusedWindow();
@@ -702,12 +740,14 @@ function toggleFloating(win) {
         // 反过来的话 removeWindow 会把刚打上的标记抹掉。
         const spaceId = removeWindow(target, true);
         state.floating.add(target.id);
+        state.transient.delete(target.id);
         persistFloating();
         target.focus();
         // 摘走一个窗口之后，剩下的要重新排一下
         if (spaceId != null) tiling.tileSpace(spaceId);
     } else {
         state.floating.delete(target.id);
+        state.transient.delete(target.id);
         persistFloating();
         const spaceId = addWindow(target);
         if (spaceId != null) {
@@ -732,7 +772,9 @@ function focusFloating() {
 /** 保存浮动窗口列表 */
 function persistFloating() {
     try {
-        hs.userdefaults.set(config.floatingKey, JSON.stringify([...state.floating]));
+        // 弹出式窗口（文件选择面板之类）用完就没了，不该存进 userdefaults
+        const ids = [...state.floating].filter((id) => !state.transient.has(id));
+        hs.userdefaults.set(config.floatingKey, JSON.stringify(ids));
     } catch (err) {
         console.error("PaperWM: 保存浮动窗口列表失败：" + err.message);
     }
@@ -746,6 +788,7 @@ function restoreFloating() {
         const ids = JSON.parse(raw);
         if (!Array.isArray(ids)) return;
         state.floating.clear();
+        state.transient.clear();
         for (const id of ids) state.floating.add(id);
     } catch (err) {
         console.error("PaperWM: 恢复浮动窗口列表失败：" + err.message);
@@ -772,6 +815,8 @@ module.exports = {
     toggleStack,
     splitScreen,
     isFloating,
+    makeFloating,
+    unfloat,
     toggleFloating,
     focusFloating,
     persistFloating,

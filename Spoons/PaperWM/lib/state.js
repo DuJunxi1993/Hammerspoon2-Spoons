@@ -34,6 +34,12 @@ const state = {
     tracked: new Map(),       // windowId -> HSWindow
     floating: new Set(),      // windowId（浮动窗口不参与平铺）
 
+    // 弹出式窗口（文件选择面板、sheet、模态框……）的 id。
+    // 它们也是浮动窗口，但和用户手动设的浮动窗口要分开：
+    //   · 用户设的会存进 userdefaults，下次启动还在
+    //   · 弹出式的用完就没了，不该存
+    transient: new Set(),
+
     // ---- 期望位置 ----
     // 我们自己改动窗口位置后，AX 会回报一个 windowMoved/windowResized 事件。
     // 记下"我们要求的 frame"，事件到来时比对，吻合就忽略——

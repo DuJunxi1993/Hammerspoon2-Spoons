@@ -16,6 +16,7 @@
 "use strict";
 
 const { config, defaultRules, defaultBundleRules } = require("./config");
+const axutil = require("./axutil");
 
 // 应用显示名（小写） -> 规则数组
 const appRules = new Map();
@@ -120,71 +121,203 @@ function loadDefaults() {
     }
 }
 
-/** 窗口是否应该被平铺 */
-function isAllowed(win) {
-    if (!win) return false;
+/**
+ * 窗口分类。
+ *
+ * 三类：
+ *   "tile"   普通窗口，参与平铺
+ *   "float"  弹出式窗口（文件选择面板、sheet、模态框、不能最大化的窗口……）
+ *            —— 不参与平铺，作为浮动窗口跟随。**它出现的时候，
+ *            现有的平铺布局一点都不能动。**
+ *   "ignore" 完全不管（菜单栏控件、被规则排除的窗口……）
+ *
+ * @param {object} win HSWindow
+ * @param {boolean} trusted 这个窗口我们已经纳管了。
+ *        AX 查询偶尔会因为应用正忙而失败（isStandard 会返回 false），
+ *        这时候不能因为一次读取失败就把已经在布局里的窗口踢出去。
+ * @returns {"tile"|"float"|"ignore"}
+ */
+function classify(win, trusted) {
+    if (!win) return "ignore";
 
     // 基础过滤（对应 v1 的 setOverrideFilter）
-    if (win.isMinimized) return false;     // visible = true
-    if (win.isFullscreen) return false;    // fullscreen = false
-    if (!win.isStandard) return false;     // hasTitlebar + allowRoles = AXStandardWindow
+    if (win.isMinimized) return "ignore";     // visible = true
+    if (win.isFullscreen) return "ignore";    // fullscreen = false
 
     const app = win.application;
-    if (!app) return false;
+    if (!app) return "ignore";
 
-    // 有些应用明明能平铺，却报告"不可最大化"。
-    // config.allowNonMaximizableWindow 是个函数，返回 true 就放行。
-    if (typeof config.allowNonMaximizableWindow === "function") {
-        let allowed = false;
+    // 1. 白名单优先：命中的窗口一定是普通窗口，一定参与平铺。
+    //    用户可能想平铺某个"长得像面板"的工具窗口。
+    if (matchesAny(config.panelWhiteList, win)) return "tile";
+
+    // 2. 用户自定义的弹出窗口规则
+    if (matchesAny(config.panelRules, win)) return "float";
+
+    // 3. 应用级排除规则。这些是"这个窗口不要"，不是"这是弹出窗口"，
+    //    所以归到 ignore——完全不跟踪。
+    if (rejectedByRules(app, win)) return "ignore";
+
+    // 4. 显示器白名单：不在名单上的显示器上的窗口不参与平铺
+    if (!onAllowedScreen(win)) return "ignore";
+
+    // 5. 不是标准窗口（菜单栏、控件之类）。
+    //    已经纳管的窗口放行——AX 查询失败时 isStandard 会返回 false，
+    //    那只是一次读取失败，不代表窗口真的变了。
+    if (!win.isStandard && !trusted) return "ignore";
+
+    // 6. 弹出式窗口？
+    //    macOS 原生的文件选择面板（open-panel / save-panel）、sheet、
+    //    模态框都归到这里。它们出现时不能动现有的布局。
+    const transient = axutil.isTransient(win);
+    if (transient === true) return "float";
+
+    // 7. 不能最大化的窗口也不能平铺——平铺完没法再调整大小。
+    //    （上游 PaperWM 也是这么做的，见 axutil.js 里的说明）
+    //
+    //    已经纳管的窗口例外：AX 读不出结论时（null），宁可保持原状，
+    //    也不要因为应用正忙的一次超时就把窗口踢出布局。
+    const maximizable = axutil.isMaximizable(win);
+    if (maximizable === false && !trusted) return "float";
+
+    return "tile";
+}
+
+/**
+ * 窗口是否应该参与平铺。
+ *
+ * 兼容老接口：只看"tile"这一类。
+ */
+function isAllowed(win) {
+    return classify(win) === "tile";
+}
+
+/**
+ * 窗口是否应该被当成浮动窗口跟踪。
+ */
+function isFloatingKind(win) {
+    return classify(win) === "float";
+}
+
+/**
+ * 匹配一条用户规则 { app?, title? }。
+ */
+function matchRule(rule, win) {
+    if (!rule) return false;
+
+    if (rule.app) {
+        const name = String((win.application && win.application.name) || "").toLowerCase();
+        if (name !== String(rule.app).toLowerCase()) return false;
+    }
+
+    if (rule.title != null) {
+        const title = win.title;
+        if (!title) return false;
+        let pattern;
         try {
-            allowed = !!config.allowNonMaximizableWindow(win);
+            pattern = compilePattern(rule.title);
         } catch (err) {
-            allowed = false;
+            return false;
         }
-        if (allowed) return true;
+        if (!pattern.test(title)) return false;
     }
 
-    // 显示器白名单：不在名单上的显示器上的窗口不参与平铺
-    if (allowedScreens) {
-        const screen = win.screen;
-        if (!screen) return false;
-        const screenName = String(screen.name || "").toLowerCase();
-        let ok = false;
-        for (const name of allowedScreens) {
-            if (screenName === name || screenName.indexOf(name) >= 0) {
-                ok = true;
-                break;
-            }
-        }
-        if (!ok) return false;
-    }
+    return true;
+}
 
+/** 有没有规则命中 */
+function matchesAny(rules, win) {
+    if (!rules || !rules.length) return false;
+    for (const rule of rules) {
+        if (matchRule(rule, win)) return true;
+    }
+    return false;
+}
+
+/** 应用级排除规则命中了吗 */
+function rejectedByRules(app, win) {
     const bundleID = (app.bundleID || "").toLowerCase();
     const bundleList = bundleRules.get(bundleID);
     if (bundleList) {
         for (const rule of bundleList) {
-            if (rule.type === "all") return false;
+            if (rule.type === "all") return true;
         }
     }
 
     const name = (app.name || "").toLowerCase();
     const list = appRules.get(name);
-    if (!list) return true;
+    if (!list) return false;
 
     const title = win.title;
     for (const rule of list) {
-        if (rule.type === "all") return false;
+        if (rule.type === "all") return true;
         if (rule.type === "bundle") {
-            if (rule.value === bundleID) return false;
+            if (rule.value === bundleID) return true;
             continue;
         }
         if (rule.type === "title") {
             // 标题为空的窗口不参与标题匹配（v1 同样如此）
             if (!title) continue;
-            if (rule.pattern.test(title)) return false;
+            if (rule.pattern.test(title)) return true;
         }
     }
-    return true;
+    return false;
+}
+
+/** 窗口在允许平铺的显示器上吗 */
+function onAllowedScreen(win) {
+    if (!allowedScreens) return true;
+    const screen = win.screen;
+    if (!screen) return false;
+    const screenName = String(screen.name || "").toLowerCase();
+    for (const name of allowedScreens) {
+        if (screenName === name || screenName.indexOf(name) >= 0) return true;
+    }
+    return false;
+}
+
+
+/**
+ * 设置弹出式窗口规则。
+ *
+ * 命中的窗口会被当成浮动窗口：出现时不打乱现有布局，自己能拖能聚焦。
+ *
+ * @param {Array<{app?: string, title?: string}>} rules
+ */
+function setPanelRules(rules) {
+    config.panelRules = Array.isArray(rules) ? rules.slice() : [];
+    axutil.clearCache();
+}
+
+/**
+ * 设置弹出式窗口白名单。
+ *
+ * 命中的窗口一定是普通窗口，一定参与平铺——哪怕它长得像面板
+ * （没有放大按钮、identifier 带 panel 之类的）。
+ *
+ * @param {Array<{app?: string, title?: string}>} rules
+ */
+function setPanelWhiteList(rules) {
+    config.panelWhiteList = Array.isArray(rules) ? rules.slice() : [];
+    axutil.clearCache();
+}
+
+/**
+ * 枚举所有"候选"窗口（还没分类）。
+ *
+ * 只做最基础的过滤（没有最小化/全屏、有归属应用），
+ * 剩下的交给 classify 判断。
+ */
+function allWindows() {
+    const result = [];
+    for (const win of hs.window.allWindows()) {
+        if (!win) continue;
+        if (win.isMinimized) continue;
+        if (win.isFullscreen) continue;
+        if (!win.application) continue;
+        result.push(win);
+    }
+    return result;
 }
 
 /**
@@ -195,23 +328,92 @@ function isAllowed(win) {
  */
 function managedWindows() {
     const result = [];
-    for (const win of hs.window.allWindows()) {
+    for (const win of allWindows()) {
         if (isAllowed(win)) result.push(win);
     }
     return result;
 }
 
+/**
+ * 枚举当前应该被跟踪为浮动窗口的窗口（弹出式窗口）。
+ */
+function floatingWindows() {
+    const result = [];
+    for (const win of allWindows()) {
+        if (isFloatingKind(win)) result.push(win);
+    }
+    return result;
+}
+
+/**
+ * 解释一个窗口为什么是（或不是）平铺窗口。
+ *
+ * 排查问题用："这个窗口怎么没被平铺？"
+ *
+ * @param {object} win HSWindow
+ * @returns {string}
+ */
+function explain(win) {
+    if (!win) return "窗口为空";
+    const app = win.application;
+    const name = app ? (app.name || "?") : "?";
+    const title = win.title || "(无标题)";
+
+    if (win.isMinimized) return `「${title}」[${name}] 最小化了，不管`;
+    if (win.isFullscreen) return `「${title}」[${name}] 全屏了，不管`;
+    if (!win.isStandard) return `「${title}」[${name}] 不是标准窗口，不管`;
+    if (!app) return `「${title}」取不到归属应用，不管`;
+
+    if (matchesAny(config.panelWhiteList, win)) {
+        return `「${title}」[${name}] 命中弹出窗口白名单 → 平铺`;
+    }
+    if (matchesAny(config.panelRules, win)) {
+        return `「${title}」[${name}] 命中自定义弹出规则 → 浮动`;
+    }
+    if (rejectedByRules(app, win)) {
+        return `「${title}」[${name}] 被应用排除规则排除 → 不管`;
+    }
+    if (!onAllowedScreen(win)) {
+        return `「${title}」[${name}] 不在允许平铺的显示器上 → 不管`;
+    }
+
+    const transient = axutil.isTransient(win);
+    if (transient === true) {
+        return `「${title}」[${name}] 是弹出式窗口（面板/模态框）→ 浮动`;
+    }
+    if (transient === null) {
+        return `「${title}」[${name}] AX 读不出是不是面板，先按普通窗口处理`;
+    }
+
+    const maximizable = axutil.isMaximizable(win);
+    if (maximizable === false) {
+        return `「${title}」[${name}] 不能最大化（没有放大按钮）→ 浮动`;
+    }
+    if (maximizable === null) {
+        return `「${title}」[${name}] AX 读不出能不能最大化，先按普通窗口处理`;
+    }
+
+    return `「${title}」[${name}] 普通窗口 → 平铺`;
+}
+
 loadDefaults();
 
 module.exports = {
+    classify,
     isAllowed,
+    isFloatingKind,
+    allWindows,
     managedWindows,
+    floatingWindows,
     setAppFilter,
     setBundleFilter,
     rejectApp,
     setScreens,
     getScreens,
     resetRules,
+    setPanelRules,
+    setPanelWhiteList,
+    explain,
     loadDefaults,
     appRules,
     bundleRules,

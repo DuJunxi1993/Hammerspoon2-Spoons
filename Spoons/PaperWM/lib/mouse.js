@@ -155,6 +155,7 @@ function dropLifted(win) {
 
     // 先取消浮动标记，再按位置插回布局
     state.floating.delete(win.id);
+    state.transient.delete(win.id);
     actions.persistFloating();
 
     const spaceId = actions.spaceIdOf(win);
