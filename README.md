@@ -4,7 +4,7 @@
 
 Hammerspoon 2 是 macOS 上的自动化工具，Swift + JavaScriptCore 实现，
 比一代（Hammerspoon 1）多了原生 Spaces、原生 Liquid Glass 界面、AX 观察者等能力。
-这个仓库里的插件都是按二代的 API 重写的——不是把一代的代码搬过来。
+本仓库插件均按二代的 API 重写。
 
 ## 插件
 
