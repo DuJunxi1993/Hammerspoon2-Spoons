@@ -98,6 +98,21 @@ function moveColumn(spaceId, from, to) {
 }
 
 /**
+ * 在第 at 列插入一个新列时，把叠放信息整体往后挪。
+ */
+function insertColumn(spaceId, at) {
+    const table = state.stacks.get(spaceId);
+    if (!table) return;
+    for (const key of [...table.keys()]) {
+        if (key >= at) {
+            const info = table.get(key);
+            table.delete(key);
+            table.set(key + 1, info);
+        }
+    }
+}
+
+/**
  * 删掉一列（比如列空了），后面的列号要往前挪，叠放信息也得跟着挪。
  */
 function removeColumn(spaceId, col) {
@@ -120,5 +135,6 @@ module.exports = {
     activeRow,
     rowRemoved,
     moveColumn,
+    insertColumn,
     removeColumn,
 };

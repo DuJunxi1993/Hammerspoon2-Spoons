@@ -381,6 +381,43 @@ function tileColumn(windows, bounds, h, w, id, h4id) {
 // ---------------------------------------------------------------- 铺整个 Space
 
 /**
+ * 重新计算某个 Space 的索引表。
+ *
+ * 索引表是"窗口 → 它在第几列第几行"的映射。列一被删掉，
+ * 后面所有列的编号都会往前挪一位，索引表必须跟着重建，
+ * 否则拿着过期的列号去排版，窗口就会跑到莫名其妙的位置。
+ */
+function reindex(spaceId) {
+    const columns = state.columns.get(spaceId);
+    if (!columns) return;
+    for (let col = 0; col < columns.length; col++) {
+        const column = columns[col];
+        for (let row = 0; row < column.length; row++) {
+            state.index.set(column[row].id, { space: spaceId, col, row });
+        }
+    }
+}
+
+/**
+ * 在布局里找某个窗口所在的列号；找不到返回 -1。
+ *
+ * 比查 state.index 更可靠：索引表可能因为列被删掉而过期，
+ * 而这里永远是当前真实的情况。排版时找锚点列、删窗口时找它那一列，
+ * 都应该用这个。
+ */
+function columnOf(spaceId, win) {
+    const columns = state.columns.get(spaceId);
+    if (!columns || !win) return -1;
+    for (let c = 0; c < columns.length; c++) {
+        const column = columns[c];
+        for (const w of column) {
+            if (w && w.id === win.id) return c;
+        }
+    }
+    return -1;
+}
+
+/**
  * 清掉布局里已经死掉的窗口。
  *
  * 窗口被关掉时，AX 有时不会送 uIElementDestroyed 通知（应用被强杀、
@@ -394,6 +431,8 @@ function pruneDeadWindows(spaceId) {
     if (!columns) return 0;
 
     let removed = 0;
+    let columnsRemoved = false;
+
     for (let col = columns.length - 1; col >= 0; col--) {
         const column = columns[col];
         for (let i = column.length - 1; i >= 0; i--) {
@@ -413,7 +452,20 @@ function pruneDeadWindows(spaceId) {
             }
             removed++;
         }
-        if (column.length === 0) columns.splice(col, 1);
+        if (column.length === 0) {
+            columns.splice(col, 1);
+            columnsRemoved = true;
+            // 叠放信息跟着列一起往前挪
+            stack.removeColumn(spaceId, col);
+        }
+    }
+
+    // ⚠️ 关键：列被删掉之后，后面所有列的编号都变了，
+    // 索引表必须重建。否则排版时会拿着过期的列号，
+    // 把锚点窗口当成左边的列铺到屏幕最左边——
+    // 表现出来就是"窗口贴屏幕左边，右侧空出来"。
+    if (columnsRemoved || removed > 0) {
+        reindex(spaceId);
     }
     return removed;
 }
@@ -467,6 +519,13 @@ function tileSpace(spaceId) {
     const anchorIndex = windowIndex(anchor);
     if (!anchorIndex) return;
 
+    // ⚠️ 用实际搜出来的列号，不要信索引表里的。
+    // 索引表可能因为刚删过一列而过期（列号都偏大了），
+    // 拿过期列号去铺左右两边的列，就会把锚点窗口自己当成
+    // "左边那一列"铺到屏幕最左边——右侧就空出来了。
+    const anchorCol = columnOf(spaceId, anchor);
+    if (anchorCol < 0) return;
+
     const screenFrame = screen.frame;
     const leftMargin = screenFrame.x + config.screenMargin;
     const rightMargin = screenFrame.x + screenFrame.w - config.screenMargin;
@@ -483,18 +542,18 @@ function tileSpace(spaceId) {
         af.x = canvas.x + canvas.w - af.w;
     }
 
-    const column = columns[anchorIndex.col];
+    const column = columns[anchorCol];
     if (!column) return;
 
-    if (stack.isStacked(spaceId, anchorIndex.col)) {
+    if (stack.isStacked(spaceId, anchorCol)) {
         // 手风琴叠放：只有焦点窗口能改变展开的是哪一个，
         // 其它情况（比如后台重排时的兜底选择）保持原样
         if (focused && focused.id === anchor.id) {
-            stack.setActiveRow(spaceId, anchorIndex.col, anchorIndex.row + 1);
+            stack.setActiveRow(spaceId, anchorCol, anchorIndex.row + 1);
         }
         const bounds = { x: af.x, x2: null, y: canvas.y, y2: canvas.y + canvas.h };
         tileStackedColumn(column, bounds,
-            stack.activeRow(spaceId, anchorIndex.col), af.w);
+            stack.activeRow(spaceId, anchorCol), af.w);
     } else if (column.length === 1) {
         // 整列只有一个窗口：铺满整个画布
         af.y = canvas.y;
@@ -512,7 +571,7 @@ function tileSpace(spaceId) {
 
     // 向右铺
     let x = af.x + af.w + gap("right");
-    for (let col = anchorIndex.col + 1; col < columns.length; col++) {
+    for (let col = anchorCol + 1; col < columns.length; col++) {
         const bounds = {
             x: Math.min(x, rightMargin),
             x2: null,
@@ -526,7 +585,7 @@ function tileSpace(spaceId) {
 
     // 向左铺
     let x2 = af.x - gap("left");
-    for (let col = anchorIndex.col - 1; col >= 0; col--) {
+    for (let col = anchorCol - 1; col >= 0; col--) {
         const bounds = {
             x: null,
             x2: Math.max(x2, leftMargin),
@@ -574,6 +633,8 @@ module.exports = {
     tileStackedColumn,
     tileOneColumn,
     tileSpace,
+    reindex,
+    columnOf,
     pruneDeadWindows,
     currentSpaceId,
 };

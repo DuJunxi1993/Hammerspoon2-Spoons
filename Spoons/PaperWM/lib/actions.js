@@ -81,6 +81,7 @@ function addWindow(win) {
     }
 
     columns.splice(insertAt, 0, [win]);
+    stack.insertColumn(spaceId, insertAt);
     reindex(spaceId);
     state.tracked.set(win.id, win);
 
@@ -143,12 +144,21 @@ function removeWindow(win, skipFocus) {
         }
     }
 
+    // ⚠️ 实际搜出来的那一列，不要信索引表里的列号。
+    // 索引表可能因为刚删过一列而过期（后面所有列的编号都偏大了），
+    // 拿过期列号去删，会把无辜的窗口删掉、留下一列空洞。
+    const col = tiling.columnOf(index.space, win);
     const columns = tiling.columnsFor(index.space);
-    const column = columns[index.col];
-    if (column) {
-        const at = indexOfWindow(column, win);
-        if (at >= 0) column.splice(at, 1);
-        if (column.length === 0) columns.splice(index.col, 1);
+    if (col >= 0) {
+        const column = columns[col];
+        if (column) {
+            const at = indexOfWindow(column, win);
+            if (at >= 0) column.splice(at, 1);
+            if (column.length === 0) {
+                columns.splice(col, 1);
+                stack.removeColumn(index.space, col);
+            }
+        }
     }
 
     state.index.delete(win.id);
@@ -166,16 +176,9 @@ function removeWindow(win, skipFocus) {
     return index.space;
 }
 
-/** 重新计算某个 Space 的索引表 */
+/** 重新计算某个 Space 的索引表（实现在 tiling.js，两边共用一份） */
 function reindex(spaceId) {
-    const columns = state.columns.get(spaceId);
-    if (!columns) return;
-    for (let col = 0; col < columns.length; col++) {
-        const column = columns[col];
-        for (let row = 0; row < column.length; row++) {
-            state.index.set(column[row].id, { space: spaceId, col, row });
-        }
-    }
+    tiling.reindex(spaceId);
 }
 
 // ---------------------------------------------------------------- 焦点
@@ -569,6 +572,7 @@ function barfWindow() {
 
     const targetIndex = index.col + 1;
     columns.splice(targetIndex, 0, [win]);
+    stack.insertColumn(index.space, targetIndex);
     // 新列不是手风琴（除非全局默认就是）
     if (config.columnLayout !== "stacked") {
         stack.setStacked(index.space, targetIndex, false);
