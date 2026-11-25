@@ -18,9 +18,7 @@ Hammerspoon 2 是 macOS 上的自动化工具，Swift + JavaScriptCore 实现，
 | [InputSourceSwitcher](Spoons/InputSourceSwitcher/) | 按当前应用自动切换中英文输入源 |
 | [Notice](Spoons/Notice/) | 轻量提示条（原生 SwiftUI，不抢焦点），供其它插件调用 |
 
-每个插件都有独立文档，PaperWM 的最详细——
-它是从 Hammerspoon 1 的 PaperWM.spoon 完整移植过来的，
-README 里记录了每一处与 v1 的差异和二代特有的坑。
+PaperWM 是从 Hammerspoon 1 的 PaperWM.spoon 完整移植。
 
 ## 安装
 
@@ -30,7 +28,7 @@ README 里记录了每一处与 v1 的差异和二代特有的坑。
 cp -R Spoons/* ~/.config/Hammerspoon2/Spoons/
 ```
 
-然后在 `~/.config/Hammerspoon2/init.js` 里加载入口：
+HS2主程序会自动加载配置，也可以在程序Console加载：
 
 ```js
 const TogglePanel = hs.spoons.load("TogglePanel");
@@ -66,22 +64,6 @@ PaperWM.start();
 `upstream/` 是一份完整的 Hammerspoon 2 仓库（保留了上游 git 历史，
 可以随时 `git -C upstream pull` 更新），用来对照源码和本地构建。
 它被 `.gitignore` 排除，不进本仓库的版本库。
-
-## 移植时踩过的坑（HS2 与 HS1 的差异）
-
-一代的插件不能直接搬到二代用，这几个差异最要命：
-
-- **`hs.window.filter` 没有二代替代品**。窗口过滤得自己写成普通函数，
-  事件订阅得换成 `hs.ax` 的 AX 观察者。
-- **`hs.ax.on()` 传数组是"全有或全无"的**。只要有一个通知不被支持，
-  已经注册的全都撤销，必须一个一个注册。
-- **`hs.ax` 注册用原始名、回调收到的是短名**。注册是 `"AXWindowCreated"`，
-  回调给的是 `"windowCreated"`，直接比较永远匹配不上。
-- **`event.flags` 数组里带"哪一侧按下"的名字**（`leftCmd`、`leftAlt`……），
-  一代没有这些。判断修饰键必须先过滤掉它们。
-- **`hs.window` 的 `frame` 是属性不是方法**，赋值用 `win.frame = new HSRect(...)`。
-- **原生 Spaces**。`space.goto()` / `win.moveToSpace(space)`，
-  不用再模拟 Mission Control 的鼠标拖拽了。
 
 ## 致谢
 
