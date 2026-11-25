@@ -1,0 +1,6 @@
+{
+    "name": "TogglePanel",
+    "author": "djx",
+    "version": "2.1.0",
+    "description": "插件开关面板：实时启停各个 Spoon，无需重载配置"
+}

@@ -1,0 +1,6 @@
+{
+    "name": "TextActions",
+    "author": "djx",
+    "version": "2.1.0",
+    "description": "对当前选中文字执行常用清理、重排和中文符号包裹操作"
+}

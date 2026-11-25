@@ -1,0 +1,6 @@
+{
+    "name": "ResizeMouse",
+    "author": "djx",
+    "version": "2.0.0",
+    "description": "用鼠标修饰键直接操作窗口：⌃⇧ 调整大小 · ⌃⌥ 移动窗口"
+}

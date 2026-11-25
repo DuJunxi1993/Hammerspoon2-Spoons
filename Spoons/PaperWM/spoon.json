@@ -1,0 +1,6 @@
+{
+    "name": "PaperWM",
+    "author": "djx",
+    "version": "2.0.0",
+    "description": "平铺窗口管理：自动排布、焦点导航、跨 Space 切换与移动"
+}

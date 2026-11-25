@@ -1,0 +1,24 @@
+# macOS
+.DS_Store
+
+# 上游 Hammerspoon 2 的构建产物与依赖
+#
+# upstream/ 是一个完整的 git 仓库（保留了上游的历史，方便 pull 上游更新），
+# 但 git 会把带 .git 的目录当成 submodule 处理，所以这里整个忽略掉，
+# 只提交我们自己的东西。
+#
+# 如果你想把上游源码也纳入版本管理，把下面这行改成：
+#   upstream/*
+#   !upstream/.gitignore
+# 然后删掉 upstream/.git
+upstream/
+
+# 如果哪天不想忽略上游源码，注释掉上面那行，改用这些细项：
+# upstream/node_modules/
+# upstream/.build/
+# upstream/build/
+# *.xcuserdatad
+# xcuserdata/
+
+# Hammerspoon 2 的本地配置（不要提交个人配置）
+.hammerspoon/

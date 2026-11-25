@@ -1,0 +1,6 @@
+{
+    "name": "InputSourceSwitcher",
+    "author": "djx",
+    "version": "2.1.0",
+    "description": "按当前活跃应用的 Bundle ID 自动切换中英文输入源"
+}

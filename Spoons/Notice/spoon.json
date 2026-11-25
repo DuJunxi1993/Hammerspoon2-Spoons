@@ -1,0 +1,6 @@
+{
+    "name": "Notice",
+    "author": "djx",
+    "version": "2.1.0",
+    "description": "轻量级深色短提示：原生 SwiftUI 浮层，不抢焦点，支持窗口/鼠标/屏幕三种锚点"
+}

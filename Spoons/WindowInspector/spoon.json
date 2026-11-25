@@ -1,0 +1,6 @@
+{
+    "name": "WindowInspector",
+    "author": "djx",
+    "version": "2.1.0",
+    "description": "检查当前聚焦窗口，并生成窗口排除规则"
+}
