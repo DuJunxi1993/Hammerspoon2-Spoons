@@ -77,22 +77,9 @@ function moveWindow(win, frame, instant) {
     return true;
 }
 
-/**
- * 最后一次由 PaperWM 摆放的位置。
- *
- * state.expected 里的记录会被事件消费掉，用来做"是不是我们自己动的"
- * 判断；这里这份不会被动，专门用来回答另一个问题：
- * "这个窗口现在的样子，和我们上次放它的地方差多少？"
- *
- * 系统原生平铺（⌃⌥+方向键）会把窗口挪走——这时候两边的差值很大，
- * 我们就知道是外部动的，不是自己的动画在跑。
- */
-const lastPlaced = new Map();
-
 /** 真的把窗口挪到某个位置（同时记下期望值，好让 AX 事件别误判成用户拖动） */
 function apply(win, frame) {
     const now = Date.now();
-    lastPlaced.set(win.id, { x: frame.x, y: frame.y, w: frame.w, h: frame.h });
     const previous = state.expected.get(win.id);
 
     // 记下"最近几个值"，AX 事件滞后到达时还能对上
@@ -272,7 +259,6 @@ module.exports = {
     targetFrame,
     layoutFrame,
     isAnimating,
-    lastPlaced,
     deviated,
     easeOutCubic,
     running,

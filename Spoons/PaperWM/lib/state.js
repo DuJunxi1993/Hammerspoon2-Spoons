@@ -40,12 +40,6 @@ const state = {
     //   · 弹出式的用完就没了，不该存
     transient: new Set(),
 
-    // 被 macOS 原生平铺过的窗口：windowId -> { space, rect }
-    //
-    // 用了 ⌃⌥+方向键 / ⌃⌥⇧+方向键之后，系统会自己把窗口摆到半屏
-    // 或者和另一个窗口分屏。这些窗口的位置大小听系统的，PaperWM
-    // 不再动它们——否则下一次重排就会把系统分好的屏冲掉。
-    pinned: new Map(),
 
     // ---- 期望位置 ----
     // 我们自己改动窗口位置后，AX 会回报一个 windowMoved/windowResized 事件。

@@ -31,165 +31,6 @@ const spaces = require("./spaces");
 // 重排的防抖时长（秒）：一次事件风暴里只排一次版
 const RETILE_DEBOUNCE = 0.06;
 
-// ---------------------------------------------------------------- 系统原生平铺
-
-// macOS 自带的窗口平铺快捷键：
-//   ⌃⌥ + 方向键      把窗口移到半屏
-//   ⌃⌥⇧ + 方向键     两个窗口分屏
-//
-// 只监听不拦截——系统该干什么还是干什么。我们只是需要知道
-// "用户刚让系统平铺了窗口"，好给它让出位置，别被下一次重排冲掉。
-const ARROW_KEY_CODES = new Set([123, 124, 125, 126]);   // ← → ↓ ↑
-
-// 等系统的平铺动画走完，再看哪些窗口被它动了。
-// 系统的平铺动画大概 0.25 秒，这里留够余量，
-// 这样读到被钉住窗口的位置时，它已经停在最终位置上了。
-const SYSTEM_TILING_DELAY = 0.45;
-
-// 这段时间里不插手重排——不然系统刚摆好的窗口就被我们搬走了
-let systemTilingUntil = 0;
-
-let systemTilingTap = null;
-
-/**
- * 监听 macOS 原生的窗口平铺快捷键。
- *
- * 用 listenOnly 的事件监听：不吞事件、不改行为，
- * 系统该怎么平铺还是怎么平铺。
- */
-function watchSystemTiling() {
-    if (systemTilingTap || !config.followSystemTiling) return;
-
-    const types = hs.eventtap.eventTypes;
-    try {
-        systemTilingTap = hs.eventtap.addWatcher([types.keyDown], (event) => {
-            if (event.type !== types.keyDown) return hs.eventtap.emit;
-            // 先看键码是不是方向键——普通打字不该为此付出代价
-            // （读 event.flags 会分配一个数组）
-            if (!ARROW_KEY_CODES.has(event.keyCode)) return hs.eventtap.emit;
-            const flags = event.flags || [];
-            if (!flags.includes("ctrl") || !flags.includes("alt")) return hs.eventtap.emit;
-            onSystemTilingShortcut();
-            return hs.eventtap.emit;   // 放行，系统照常处理
-        }, true);
-        if (systemTilingTap) systemTilingTap.start();
-    } catch (err) {
-        console.error("PaperWM: 监听系统平铺快捷键失败：" + err.message);
-        systemTilingTap = null;
-    }
-}
-
-/** 取消监听 */
-function unwatchSystemTiling() {
-    if (!systemTilingTap) return;
-    try {
-        systemTilingTap.stop();
-    } catch (err) {
-        // 已经停了，不影响
-    }
-    systemTilingTap = null;
-}
-
-/**
- * 用户按了系统平铺快捷键。
- *
- * 系统马上要动窗口了：先声明"这段时间别插手"，不然我们自己的
- * 重排会把系统刚摆好的位置冲掉。等系统的动画走完，再看哪些
- * 窗口被它动了——那些窗口钉住，位置大小听系统的。
- */
-function onSystemTilingShortcut() {
-    if (!config.followSystemTiling) return;
-
-    systemTilingUntil = Date.now() + (SYSTEM_TILING_DELAY + 0.4) * 1000;
-
-    // 还没触发的重排先取消掉——它们要是正好在这段时间里跑起来，
-    // 窗口的位置就不是"系统改的"了，判断会出错。
-    for (const timer of state.retileTimers.values()) timer.stop();
-    state.retileTimers.clear();
-
-    // 记下每个受管窗口现在的位置，等系统平铺完再对比。
-    // 正在做动画的窗口不记——它的位置是中间值，比对没有意义
-    // （AX 回报的位置总会比动画慢半拍，差个几像素很正常）。
-    const before = new Map();
-    for (const [id, win] of state.tracked) {
-        if (!state.index.has(id)) continue;
-        if (animate.isAnimating(id)) continue;
-        const frame = win.frame;
-        if (!frame) continue;
-        before.set(id, { x: frame.x, y: frame.y, w: frame.w, h: frame.h });
-    }
-
-    hs.timer.doAfter(SYSTEM_TILING_DELAY, () => {
-        let changed = windowsMovedSince(before);
-
-        // 万一系统比我们的按键回调还快（快照拍晚了），
-        // 那就退一步，拿"PaperWM 最后一次摆放的位置"来比。
-        if (!changed.length) changed = windowsMovedExternally();
-
-        if (!changed.length) return;
-
-        const spaceIds = new Set();
-        for (const id of changed) {
-            const index = state.index.get(id);
-            if (!index) continue;
-            state.pinned.set(id, { space: index.space });
-            spaceIds.add(index.space);
-        }
-        if (!spaceIds.size) return;
-
-        // 其余平铺窗口绕开被系统平铺的窗口，铺到剩下的空间里
-        for (const spaceId of spaceIds) tiling.tileSpace(spaceId);
-    });
-}
-
-/**
- * 哪些窗口的位置和快照不一样？
- *
- * @param {Map<number, {x,y,w,h}>} before 按键时的位置
- */
-function windowsMovedSince(before) {
-    const changed = [];
-    for (const [id, prev] of before) {
-        if (animate.isAnimating(id)) continue;   // 还在动，不判断
-        const win = state.tracked.get(id);
-        const frame = win && win.frame;
-        if (!frame) continue;
-        if (Math.abs(frame.x - prev.x) > 3 ||
-            Math.abs(frame.y - prev.y) > 3 ||
-            Math.abs(frame.w - prev.w) > 3 ||
-            Math.abs(frame.h - prev.h) > 3) {
-            changed.push(id);
-        }
-    }
-    return changed;
-}
-
-/**
- * 哪些受管窗口被"别人"动过了？
- *
- * 拿现在的帧和 PaperWM 最后一次摆放的位置比。差得多就是外部动的
- * （系统平铺、用户手动拖拽都会这样）。这个比较不依赖时序，
- * 不用担心事件来得早晚。
- */
-function windowsMovedExternally() {
-    const changed = [];
-    for (const [id, win] of state.tracked) {
-        if (!state.index.has(id)) continue;    // 只管受管的平铺窗口
-        if (animate.isAnimating(id)) continue; // 还在动，不判断
-        const actual = win.frame;
-        if (!actual) continue;
-        const placed = animate.lastPlaced.get(id);
-        if (!placed) continue;
-        if (Math.abs(actual.x - placed.x) > 3 ||
-            Math.abs(actual.y - placed.y) > 3 ||
-            Math.abs(actual.w - placed.w) > 3 ||
-            Math.abs(actual.h - placed.h) > 3) {
-            changed.push(id);
-        }
-    }
-    return changed;
-}
-
 // ---------------------------------------------------------------- 工具
 
 function log(...args) {
@@ -289,27 +130,15 @@ function watchWindow(win) {
 
             if (isSelfInflicted(win.id, actual)) return;
 
-            // 系统正在做原生平铺：别插手，否则刚摆好的位置会被冲掉
-            if (Date.now() < systemTilingUntil) return;
-
             // 用户自己拖动了窗口 → 重新排布
             const index = state.index.get(win.id);
-            if (!index) return;
-
-            // 被系统平铺（钉住）的窗口：用户手动动了它，就解除钉住，
-            // 交回控制权
-            if (state.pinned.has(win.id)) {
-                state.pinned.delete(win.id);
-            }
-
-            retile(index.space);
+            if (index) retile(index.space);
             break;
         }
         case ax.SHORT.uIElementDestroyed: {
             // 窗口被关掉了
             state.windowWatchers.delete(win.id);
             axutil.forget(win.id);
-            state.pinned.delete(win.id);
             if (state.floating.has(win.id)) {
                 // 浮动窗口（含弹出式窗口）没了：从浮动列表里摘掉。
                 // 弹出式窗口不写 userdefaults，用完就没了。
@@ -758,7 +587,6 @@ function start() {
     state.appActivateListener = onActivate;
 
     watchScreens();
-    watchSystemTiling();
 
     // 记下当前 Space，"切到上一个 Space"才有得切
     spaces.noteSpace(tiling.currentSpaceId());
@@ -802,8 +630,6 @@ function stop() {
         state.screenListeners = null;
     }
 
-    unwatchSystemTiling();
-    state.pinned.clear();
 
     state.columns.clear();
     state.index.clear();
@@ -830,9 +656,4 @@ module.exports = {
     rebuildSpace,
     retile,
     windowIdOf,
-    watchSystemTiling,
-    unwatchSystemTiling,
-    onSystemTilingShortcut,
-    windowsMovedExternally,
-    windowsMovedSince,
 };
