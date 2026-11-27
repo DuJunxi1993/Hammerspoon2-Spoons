@@ -131,58 +131,66 @@ const config = {
     floatingKey: "paperwm.floatingWindows",
 
     // 热键表（沿用 v1 init.lua 里的分配）。
+    //
+    // 基础组合键是 ⌃⌥（和 macOS 原生窗口平铺用的组合一致），
+    // 导航用 vim 风格的 hjkl，加 ⇧ 是"交换"那一组。
+    //
+    // 方向键刻意不放在 ⌃⌥ 上——那是系统"窗口移到半屏"用的，
+    // PaperWM 只监听不拦截，让系统照常处理。移动窗口到别的 Space
+    // 用的是 ⌃⌥⌘ + 方向键。
+    //
     // 写法是 JS 的数组形式：[[修饰键...], 键名]。
     // 也可以在加载后调用 PaperWM.bindHotkeys({...}) 覆盖。
     hotkeys: {
         // 焦点移动
-        focus_left: [["alt", "cmd"], "j"],
-        focus_right: [["alt", "cmd"], "l"],
-        focus_up: [["alt", "cmd"], "i"],
-        focus_down: [["alt", "cmd"], "k"],
-        focus_prev: [["alt", "cmd"], "k"],
-        focus_next: [["alt", "cmd"], "j"],
+        focus_left: [["alt", "ctrl"], "j"],
+        focus_right: [["alt", "ctrl"], "l"],
+        focus_up: [["alt", "ctrl"], "i"],
+        focus_down: [["alt", "ctrl"], "k"],
+        focus_prev: [["alt", "ctrl"], "p"],
+        focus_next: [["alt", "ctrl"], "n"],
 
         // 交换窗口
-        swap_left: [["alt", "cmd", "shift"], "j"],
-        swap_right: [["alt", "cmd", "shift"], "l"],
-        swap_up: [["alt", "cmd", "shift"], "i"],
-        swap_down: [["alt", "cmd", "shift"], "k"],
+        swap_left: [["alt", "ctrl", "shift"], "j"],
+        swap_right: [["alt", "ctrl", "shift"], "l"],
+        swap_up: [["alt", "ctrl", "shift"], "i"],
+        swap_down: [["alt", "ctrl", "shift"], "k"],
 
         // 窗口尺寸与位置
-        center_window: [["alt", "cmd"], "h"],
+        center_window: [["alt", "ctrl"], "h"],
         anchor_window_left: [["ctrl", "alt", "cmd"], ","],
         anchor_window_right: [["ctrl", "alt", "cmd"], "."],
-        full_width: [["alt", "cmd"], "f"],
-        cycle_width: [["alt", "cmd"], "r"],
-        cycle_height: [["alt", "cmd", "shift"], "r"],
+        full_width: [["alt", "ctrl"], "f"],
+        cycle_width: [["alt", "ctrl"], "r"],
+        cycle_height: [["alt", "ctrl", "shift"], "r"],
         reverse_cycle_width: [["ctrl", "alt", "cmd"], "r"],
         reverse_cycle_height: [["ctrl", "alt", "cmd", "shift"], "r"],
-        increase_width: [["alt", "cmd"], "o"],
-        decrease_width: [["alt", "cmd"], "u"],
+        increase_width: [["alt", "ctrl"], "o"],
+        decrease_width: [["alt", "ctrl"], "u"],
 
         // 列的拆分与合并
-        slurp_in: [["alt", "cmd"], "y"],
-        barf_out: [["alt", "cmd", "shift"], "y"],
-        toggle_stack: [["alt", "cmd", "shift"], "s"],
-        split_screen: [["alt", "cmd"], "s"],
+        slurp_in: [["alt", "ctrl"], "y"],
+        barf_out: [["alt", "ctrl", "shift"], "y"],
+        toggle_stack: [["alt", "ctrl", "shift"], "s"],
+        split_screen: [["alt", "ctrl"], "s"],
 
         // 浮动窗口
-        toggle_floating: [["alt", "cmd"], "p"],
-        focus_floating: [["alt", "cmd", "shift"], "f"],
+        toggle_floating: [["alt", "ctrl", "shift"], "escape"],
+        focus_floating: [["alt", "ctrl", "shift"], "f"],
 
         // 切换 Space
-        switch_space_l: [["alt", "cmd"], ","],
-        switch_space_r: [["alt", "cmd"], "."],
+        switch_space_l: [["alt", "ctrl"], ","],
+        switch_space_r: [["alt", "ctrl"], "."],
         switch_recent_space: [["ctrl", "alt", "cmd"], "6"],
-        switch_space_1: [["alt", "cmd"], "1"],
-        switch_space_2: [["alt", "cmd"], "2"],
-        switch_space_3: [["alt", "cmd"], "3"],
-        switch_space_4: [["alt", "cmd"], "4"],
-        switch_space_5: [["alt", "cmd"], "5"],
-        switch_space_6: [["alt", "cmd"], "6"],
-        switch_space_7: [["alt", "cmd"], "7"],
-        switch_space_8: [["alt", "cmd"], "8"],
-        switch_space_9: [["alt", "cmd"], "9"],
+        switch_space_1: [["alt", "ctrl"], "1"],
+        switch_space_2: [["alt", "ctrl"], "2"],
+        switch_space_3: [["alt", "ctrl"], "3"],
+        switch_space_4: [["alt", "ctrl"], "4"],
+        switch_space_5: [["alt", "ctrl"], "5"],
+        switch_space_6: [["alt", "ctrl"], "6"],
+        switch_space_7: [["alt", "ctrl"], "7"],
+        switch_space_8: [["alt", "ctrl"], "8"],
+        switch_space_9: [["alt", "ctrl"], "9"],
 
         // 聚焦第 n 个窗口
         focus_window_1: [["cmd", "shift"], "1"],
@@ -198,15 +206,15 @@ const config = {
         focus_window_last: [["cmd", "shift"], "end"],
 
         // 把窗口移到第 n 个 Space
-        move_window_1: [["alt", "cmd", "shift"], "1"],
-        move_window_2: [["alt", "cmd", "shift"], "2"],
-        move_window_3: [["alt", "cmd", "shift"], "3"],
-        move_window_4: [["alt", "cmd", "shift"], "4"],
-        move_window_5: [["alt", "cmd", "shift"], "5"],
-        move_window_6: [["alt", "cmd", "shift"], "6"],
-        move_window_7: [["alt", "cmd", "shift"], "7"],
-        move_window_8: [["alt", "cmd", "shift"], "8"],
-        move_window_9: [["alt", "cmd", "shift"], "9"],
+        move_window_1: [["alt", "ctrl", "shift"], "1"],
+        move_window_2: [["alt", "ctrl", "shift"], "2"],
+        move_window_3: [["alt", "ctrl", "shift"], "3"],
+        move_window_4: [["alt", "ctrl", "shift"], "4"],
+        move_window_5: [["alt", "ctrl", "shift"], "5"],
+        move_window_6: [["alt", "ctrl", "shift"], "6"],
+        move_window_7: [["alt", "ctrl", "shift"], "7"],
+        move_window_8: [["alt", "ctrl", "shift"], "8"],
+        move_window_9: [["alt", "ctrl", "shift"], "9"],
 
         // 把窗口移到相邻显示器的 Space 上
         move_window_l: [["ctrl", "alt", "cmd"], "left"],
@@ -215,9 +223,9 @@ const config = {
         move_window_d: [["ctrl", "alt", "cmd"], "down"],
 
         // 维护
-        refresh_windows: [["alt", "cmd", "shift"], "r"],
-        refresh_windows_forcedly: [["alt", "cmd", "shift"], "t"],
-        dump_state: [["alt", "cmd", "shift"], "d"],
+        refresh_windows: [["alt", "ctrl", "shift"], "w"],
+        refresh_windows_forcedly: [["alt", "ctrl", "shift"], "t"],
+        dump_state: [["alt", "ctrl", "shift"], "d"],
     },
 };
 
