@@ -182,11 +182,14 @@ function virtualPositions(spaceId) {
 function moveWindow(win, frame, instant) {
     if (!win || !frame) return false;
 
-    const current = win.frame;
+    // 比的是动画终点，不是当前实际位置——
+    // 有动画在跑的时候，窗口还在半路上，实际位置说明不了它会去哪儿。
+    // （详见 animate.moveWindow 里的说明）
+    const current = animate.layoutFrame(win);
     if (!current) return false;
     if (Math.abs(current.x - frame.x) < 0.5 && Math.abs(current.y - frame.y) < 0.5 &&
         Math.abs(current.w - frame.w) < 0.5 && Math.abs(current.h - frame.h) < 0.5) {
-        return false;   // 位置没变，不碰窗口
+        return false;   // 已经在去的路上了，不碰窗口
     }
 
     return animate.moveWindow(win, frame, instant);

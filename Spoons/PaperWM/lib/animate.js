@@ -58,7 +58,17 @@ function lerp(a, b, t) {
 function moveWindow(win, frame, instant) {
     if (!win || !frame) return false;
 
-    const current = win.frame;
+    // 比的是"这个窗口正要去哪儿"，不是"它现在在哪儿"。
+    //
+    // 有动画在跑的时候，这两件事不一样：窗口的实际位置还在半路上，
+    // 动画终点才是它即将到达的地方。
+    //
+    // 拿实际位置去比会踩坑：比如窗口正在往屏幕外跑，而重排又要求
+    // 它回到原位——实际位置和"要求的终点"恰好还没差出 0.5 像素，
+    // 就被当成"位置没变，什么都不用做"，动画于是继续往屏幕外跑，
+    // 最后窗口跑出屏幕，留下一大片空隙。
+    const running_ = running.get(win.id);
+    const current = running_ ? running_.to : win.frame;
     if (!current) return false;
 
     const same = Math.abs(current.x - frame.x) < 0.5 &&
