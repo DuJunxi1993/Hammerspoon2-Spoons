@@ -84,8 +84,14 @@ const config = {
     // 相当于对当前窗口按一次 macOS 的 ⌥⌘H。其它窗口按原顺序
     // 分列它左右两侧。
     //
-    // 关掉就是 PaperWM 传统的"焦点窗口贴左边"（niri 那种）。
+    // 关掉就是上游 PaperWM 的老行为：焦点窗口不会被强制挪动，
+    // 布局只是围着它重排（锚点保持原位）。
+    //
+    // 用 ⌃⌥⇧H 可以在两种模式之间切换，选择会被记住。
     centerFocusedWindow: true,
+
+    // 居中模式的开关存放在 userdefaults 里的键名
+    centerModeKey: "paperwm.centerMode",
 
     // 切换 Space 时是否保留当前应用的前台状态
     preserveAppFocus: false,
@@ -153,6 +159,7 @@ const config = {
 
         // 窗口尺寸与位置
         center_window: [["alt", "ctrl"], "h"],
+        toggle_center_mode: [["alt", "ctrl", "shift"], "h"],
         anchor_window_left: [["ctrl", "alt", "cmd"], ","],
         anchor_window_right: [["ctrl", "alt", "cmd"], "."],
         full_width: [["alt", "ctrl"], "f"],

@@ -58,7 +58,7 @@ const ENTRIES = [
     {
         name: "PaperWM",
         label: "PaperWM",
-        sub: "平铺窗口管理",
+        sub: "平铺窗口管理 · ⌃⌥⇧H 切模式",
     },
     {
         name: "WindowInspector",

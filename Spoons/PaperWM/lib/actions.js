@@ -779,7 +779,6 @@ function persistFloating() {
         console.error("PaperWM: 保存浮动窗口列表失败：" + err.message);
     }
 }
-
 /** 恢复浮动窗口列表 */
 function restoreFloating() {
     try {
@@ -793,6 +792,83 @@ function restoreFloating() {
     } catch (err) {
         console.error("PaperWM: 恢复浮动窗口列表失败：" + err.message);
     }
+}
+
+// ---------------------------------------------------------------- 模式
+
+/**
+ * 切换"焦点窗口居中"模式。
+ *
+ * 居中模式：点一下窗口，它会被摆到画布正中间（相当于系统 ⌥⌘H），
+ *            其余窗口按原顺序分列它左右两侧。
+ *
+ * 经典模式：焦点窗口不会被强制挪动，布局只是围着它重排——
+ *            和上游 PaperWM v1 一个行为（锚点保持原位）。
+ *
+ * 切完用 Notice 提示一下当前是哪一种，免得按完不知道有没有生效。
+ *
+ * @returns {boolean} 切换之后的模式（true = 居中）
+ */
+function toggleCenterMode() {
+    const centered = !config.centerFocusedWindow;
+    config.centerFocusedWindow = centered;
+    persistCenterMode();
+
+    // 立刻按新模式重排当前 Space，让切换马上看得出效果
+    const spaceId = tiling.currentSpaceId();
+    if (centered) {
+        // 切到居中模式：把焦点窗口摆到中间
+        const win = focusedWindow();
+        if (win) tiling.centerAnchor(win);
+    }
+    if (spaceId != null) tiling.tileSpace(spaceId);
+
+    notifyCenterMode(centered);
+    return centered;
+}
+
+/** 保存当前模式 */
+function persistCenterMode() {
+    try {
+        hs.userdefaults.set(config.centerModeKey, config.centerFocusedWindow ? "center" : "classic");
+    } catch (err) {
+        console.error("PaperWM: 保存居中模式失败：" + err.message);
+    }
+}
+
+/** 恢复上次的模式（没有存过就保持配置里的默认值） */
+function restoreCenterMode() {
+    try {
+        const raw = hs.userdefaults.get(config.centerModeKey);
+        if (raw === "center") config.centerFocusedWindow = true;
+        else if (raw === "classic") config.centerFocusedWindow = false;
+    } catch (err) {
+        console.error("PaperWM: 恢复居中模式失败：" + err.message);
+    }
+}
+
+/**
+ * 用 Notice 提示当前模式。
+ *
+ * Notice 是个独立的 Spoon，PaperWM 不该硬依赖它——
+ * 万一没装，就退回打印一行日志。
+ */
+function notifyCenterMode(centered) {
+    const title = centered ? "居中模式" : "经典模式";
+    const subtitle = centered ? "点窗口会摆到正中间" : "点窗口不会挪位置";
+
+    try {
+        const notice = hs.spoons.load("Notice");
+        if (notice && typeof notice.show === "function") {
+            notice.show(title, subtitle, 1.4, "center");
+            return true;
+        }
+    } catch (err) {
+        console.error("PaperWM: 用 Notice 提示失败：" + err.message);
+    }
+
+    console.log("PaperWM: " + title + "——" + subtitle);
+    return false;
 }
 
 module.exports = {
@@ -821,5 +897,9 @@ module.exports = {
     focusFloating,
     persistFloating,
     restoreFloating,
+    toggleCenterMode,
+    persistCenterMode,
+    restoreCenterMode,
+    notifyCenterMode,
     spaceIdOf,
 };

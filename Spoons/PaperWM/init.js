@@ -91,6 +91,9 @@ PaperWM.spaces = spaces;
 PaperWM.start = function () {
     if (state.started) return PaperWM;
 
+    // 恢复上次选的模式（居中 / 经典）
+    actions.restoreCenterMode();
+
     events.start();
     mouse.start();
     // 热键跟着 start/stop 走：在 TogglePanel 里关掉再打开，热键不会丢
@@ -221,6 +224,19 @@ PaperWM.setPanelRules = function (rules) {
 PaperWM.setPanelWhiteList = function (rules) {
     filter.setPanelWhiteList(rules);
     PaperWM.refreshWindows();
+    return PaperWM;
+};
+
+/**
+ * 切换"焦点窗口居中"模式。
+ *
+ * 居中模式：点一下窗口，它摆到画布正中间（相当于系统 ⌥⌘H）。
+ * 经典模式：焦点窗口不会被强制挪动，布局围着它重排。
+ *
+ * 选择会被记住，下次启动还是这个模式。
+ */
+PaperWM.toggleCenterMode = function () {
+    actions.toggleCenterMode();
     return PaperWM;
 };
 

@@ -50,6 +50,9 @@ function actionTable() {
 
         // 尺寸与位置
         center_window:      () => actions.centerWindow(),
+
+        // 模式：焦点居中 / 经典
+        toggle_center_mode: () => actions.toggleCenterMode(),
         anchor_window_left: () => actions.moveToSideEdge(Direction.LEFT),
         anchor_window_right:() => actions.moveToSideEdge(Direction.RIGHT),
         full_width:         () => actions.toggleWindowFullWidth(),
