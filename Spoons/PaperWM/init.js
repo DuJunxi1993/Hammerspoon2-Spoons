@@ -13,9 +13,9 @@
 //
 //   const PaperWM = hs.spoons.load("PaperWM");
 //   PaperWM.bindHotkeys({
-//       focus_left:  [["alt", "cmd"], "j"],
-//       focus_right: [["alt", "cmd"], "l"],
-//       swap_left:   [["alt", "cmd", "shift"], "j"],
+//       focus_left:  [["alt", "ctrl"], "j"],
+//       focus_right: [["alt", "ctrl"], "l"],
+//       swap_left:   [["alt", "ctrl", "shift"], "j"],
 //       ...
 //   });
 //   PaperWM.start();
@@ -26,6 +26,7 @@
 //
 //   热键写法和 v1 的 Lua 写法不同：v1 用 { { "alt", "cmd" }, "j" }，
 //   那是 Lua 的数组；JS 里对应的写法是 [["alt", "cmd"], "j"]。
+//   （二代把基础组合键换成了 ⌃⌥，所以实际写的是 [["alt", "ctrl"], "j"]）
 //   也接受 { mods: ["alt", "cmd"], key: "j" } 这种对象写法。
 //
 // ------------------------------------------------------------------

@@ -7,7 +7,7 @@
 // 能做同样的事。这里保留 v1 的调用方式：
 //
 //   PaperWM.bindHotkeys({
-//       focus_left: { { "alt", "cmd" }, "j" },
+//       focus_left: { { "alt", "ctrl" }, "j" },
 //       ...
 //   })
 //
@@ -91,6 +91,8 @@ function actionTable() {
  * v1（Lua）：{ { "alt", "cmd" }, "j" }
  * JS 对应：[["alt", "cmd"], "j"]
  * 也接受：{ mods: ["alt", "cmd"], key: "j" }
+ *
+ * 二代的基础组合键换成了 ⌃⌥，所以实际写的是 [["alt", "ctrl"], "j"]。
  */
 function parseSpec(spec) {
     if (!spec) return null;

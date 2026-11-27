@@ -104,10 +104,14 @@ const config = {
     stackMinHeight: 150,
 
     // 按住这些修饰键 + 拖动鼠标：整组窗口左右滑动
-    dragWindow: ["alt", "cmd"],
+    //
+    // 用 ⌃⌥ 和快捷键那一套保持一致（系统"窗口移到半屏"用的是 ⌃⌥+方向键，
+    // 方向键不在这里，所以不冲突）。
+    dragWindow: ["alt", "ctrl"],
 
-    // 按住这些修饰键 + 点击窗口：把窗口从平铺中"抬"出来变成浮动窗口
-    liftWindow: ["alt", "cmd", "shift"],
+    // 按住这些修饰键 + 拖动鼠标：把窗口从平铺里"抬"出来拖动，
+    // 松手落在你放的位置
+    liftWindow: ["alt", "ctrl", "shift"],
 
     // 按住这些修饰键 + 滚轮：整组窗口左右滑动
     scrollWindow: null,
