@@ -850,24 +850,25 @@ function restoreCenterMode() {
 /**
  * 用 Notice 提示当前模式。
  *
+ * 只给模式名字，不加说明——模式是什么看这一眼就知道了。
+ *
  * Notice 是个独立的 Spoon，PaperWM 不该硬依赖它——
  * 万一没装，就退回打印一行日志。
  */
 function notifyCenterMode(centered) {
     const title = centered ? "居中模式" : "经典模式";
-    const subtitle = centered ? "点窗口会摆到正中间" : "点窗口不会挪位置";
 
     try {
         const notice = hs.spoons.load("Notice");
         if (notice && typeof notice.show === "function") {
-            notice.show(title, subtitle, 1.4, "center");
+            notice.show(title, null, 1.4, "center");
             return true;
         }
     } catch (err) {
         console.error("PaperWM: 用 Notice 提示失败：" + err.message);
     }
 
-    console.log("PaperWM: " + title + "——" + subtitle);
+    console.log("PaperWM: " + title);
     return false;
 }
 
