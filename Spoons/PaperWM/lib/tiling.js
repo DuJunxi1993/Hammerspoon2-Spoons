@@ -182,6 +182,9 @@ function virtualPositions(spaceId) {
 function moveWindow(win, frame, instant) {
     if (!win || !frame) return false;
 
+    // 被系统平铺（钉住）的窗口：位置大小听系统的，PaperWM 不碰
+    if (state.pinned.has(win.id)) return false;
+
     const current = win.frame;
     if (!current) return false;
     if (Math.abs(current.x - frame.x) < 0.5 && Math.abs(current.y - frame.y) < 0.5 &&
@@ -534,6 +537,11 @@ function tileSpace(spaceId) {
     const rightMargin = screenFrame.x + screenFrame.w - config.screenMargin;
     const canvas = getCanvas(screen);
 
+    // 被系统平铺（钉住）的窗口。它们的矩形是"禁区"，
+    // 其余窗口要绕开铺。
+    const pinned = pinnedRects(spaceId);
+    const pinnedIds = new Set(pinned.map((p) => p.id));
+
     // 把锚点窗口夹回画布内
     const anchorFrame = animate.layoutFrame(anchor);
     if (!anchorFrame) return;
@@ -545,8 +553,19 @@ function tileSpace(spaceId) {
         af.x = canvas.x + canvas.w - af.w;
     }
 
+    if (pinnedIds.has(anchor.id)) {
+        // 系统平铺过的窗口：位置和大小都听系统的，PaperWM 不插手
+        const pin = pinned.find((p) => p.id === anchor.id);
+        af.x = pin.rect.x;
+        af.y = pin.rect.y;
+        af.w = pin.rect.w;
+        af.h = pin.rect.h;
+    }
+
     const column = columns[anchorCol];
     if (!column) return;
+
+    const anchorIsPinned = pinnedIds.has(anchor.id);
 
     if (stack.isStacked(spaceId, anchorCol)) {
         // 手风琴叠放：只有焦点窗口能改变展开的是哪一个，
@@ -559,8 +578,10 @@ function tileSpace(spaceId) {
             stack.activeRow(spaceId, anchorCol), af.w);
     } else if (column.length === 1) {
         // 整列只有一个窗口：铺满整个画布
-        af.y = canvas.y;
-        af.h = canvas.h;
+        if (!anchorIsPinned) {
+            af.y = canvas.y;
+            af.h = canvas.h;
+        }
         moveWindow(anchor, af);
     } else {
         // 锚点保持自己的高度，其余窗口平分剩下的空间
@@ -572,6 +593,22 @@ function tileSpace(spaceId) {
     }
     updateVirtualPositions(spaceId, column, af.x);
 
+    if (pinned.length === 0) {
+        // ---- 经典布局：锚点把画布分成左右两半，其余列从锚点往两边铺 ----
+        tileAroundAnchor(spaceId, columns, anchorCol, af, canvas, leftMargin, rightMargin);
+    } else {
+        // ---- 有系统平铺的窗口：绕开那些"禁区"铺 ----
+        tileAroundPinned(spaceId, columns, anchorCol, af, canvas, pinned, pinnedIds);
+    }
+}
+
+/**
+ * 经典布局：锚点左边和右边的列分别从锚点往两边铺。
+ *
+ * 铺到画布外面去的窗口会停在屏幕外边（虚拟坐标记着），
+ * 用 ⌥⌘← / ⌥⌘→ 可以把它们滑回来。
+ */
+function tileAroundAnchor(spaceId, columns, anchorCol, af, canvas, leftMargin, rightMargin) {
     // 向右铺
     let x = af.x + af.w + gap("right");
     for (let col = anchorCol + 1; col < columns.length; col++) {
@@ -600,6 +637,155 @@ function tileSpace(spaceId) {
         x2 = x2 - width - gap("left");
     }
 }
+
+/**
+ * 有"钉住"的窗口时的铺法。
+ *
+ * 钉住的窗口占了系统给它的位置（比如左半屏），其余窗口只能
+ * 绕开它，铺到画布剩下的部分里去。
+ *
+ * 剩下的空间按画布左右分成若干条（band）：
+ *   · 锚点左边的列 → 铺进锚点左边那些 band
+ *   · 锚点右边的列 → 铺进锚点右边那些 band
+ *   · 没有 band 可用的时候（比如两个窗口分屏占满了），
+ *     那些列就停在屏幕外面，等用户滑回来
+ */
+function tileAroundPinned(spaceId, columns, anchorCol, af, canvas, pinned, pinnedIds) {
+    const bands = freeBands(canvas, pinned);
+
+    // 锚点左边的 band 和右边的 band
+    const leftBands = bands.filter((b) => b.x2 <= af.x + 1);
+    const rightBands = bands.filter((b) => b.x >= af.x + af.w - 1);
+
+    // ---- 锚点右边的列 ----
+    // 从最靠近锚点的列开始往右铺。band 用完了就接着往屏幕右边外面停，
+    // x2/x 只往下（往右）走，不会跳回去。
+    let bandIndex = 0;
+    let x = null;
+    for (let col = anchorCol + 1; col < columns.length; col++) {
+        const first = columns[col][0];
+        if (first && pinnedIds.has(first.id)) {
+            // 钉住的列：位置听系统的，虚拟位置跟着它走
+            const f = first.frame;
+            if (f) updateVirtualPositions(spaceId, columns[col], f.x);
+            continue;
+        }
+
+        if (bandIndex < rightBands.length) {
+            const band = rightBands[bandIndex];
+            if (x == null) x = band.x;
+        } else if (x == null) {
+            x = (rightBands.length ? rightBands[rightBands.length - 1].x2 : af.x + af.w) + gap("right");
+        }
+
+        const bounds = { x: x, x2: null, y: canvas.y, y2: canvas.y + canvas.h };
+        const width = tileOneColumn(spaceId, col, bounds);
+        updateVirtualPositions(spaceId, columns[col], x);
+        x = x + width + gap("right");
+
+        if (bandIndex < rightBands.length && x >= rightBands[bandIndex].x2 - 1) {
+            bandIndex++;
+            if (bandIndex < rightBands.length) x = rightBands[bandIndex].x;
+        }
+    }
+
+    // ---- 锚点左边的列 ----
+    bandIndex = leftBands.length - 1;
+    let x2 = null;
+    for (let col = anchorCol - 1; col >= 0; col--) {
+        const first = columns[col][0];
+        if (first && pinnedIds.has(first.id)) {
+            const f = first.frame;
+            if (f) updateVirtualPositions(spaceId, columns[col], f.x);
+            continue;
+        }
+
+        if (bandIndex >= 0) {
+            const band = leftBands[bandIndex];
+            if (x2 == null) x2 = band.x2;
+        } else if (x2 == null) {
+            x2 = (leftBands.length ? leftBands[0].x : canvas.x) - gap("left");
+        }
+
+        const bounds = { x: null, x2: x2, y: canvas.y, y2: canvas.y + canvas.h };
+        const width = tileOneColumn(spaceId, col, bounds);
+        updateVirtualPositions(spaceId, columns[col], x2 - width);
+        x2 = x2 - width - gap("left");
+
+        if (bandIndex >= 0 && x2 <= leftBands[bandIndex].x + 1) {
+            bandIndex--;
+            if (bandIndex >= 0) x2 = leftBands[bandIndex].x2;
+            // 没有下一个 band 了：x2 保持不变，继续往屏幕左边外面停
+        }
+    }
+}
+
+/**
+ * 画布减去钉住的窗口之后，还剩哪些可用区域。
+ *
+ * @returns {Array<{x: number, x2: number}>}
+ */
+function freeBands(canvas, pinned) {
+    const MIN_WIDTH = 120;   // 窄于这个宽度就当没有，省得挤成一团
+    const bands = [];
+    const sorted = pinned.slice().sort((a, b) => a.rect.x - b.rect.x);
+
+    let cursor = canvas.x;
+    for (const p of sorted) {
+        if (p.rect.x - cursor >= MIN_WIDTH) {
+            bands.push({ x: cursor, x2: p.rect.x });
+        }
+        cursor = Math.max(cursor, p.rect.x + p.rect.w);
+    }
+    if (canvas.x + canvas.w - cursor >= MIN_WIDTH) {
+        bands.push({ x: cursor, x2: canvas.x + canvas.w });
+    }
+    return bands;
+}
+
+/**
+ * 把窗口摆到画布正中间——相当于对它按一次 ⌥⌘H。
+ *
+ * 焦点窗口居中用这个：先把它挪到中间，再让布局围着它重排，
+ * 其余窗口就分列它左右两侧了。
+ *
+ * 排版本身不会去动锚点的位置（锚点在哪就以哪为基准），
+ * 所以"居中"这个动作单独做，其它事件触发的重排不会把它顶回去。
+ */
+function centerAnchor(win) {
+    if (!win) return false;
+    const screen = win.screen;
+    const frame = animate.layoutFrame(win);
+    if (!screen || !frame) return false;
+
+    const canvas = getCanvas(screen);
+    const target = {
+        x: canvas.x + Math.floor((canvas.w - frame.w) / 2),
+        y: frame.y,
+        w: frame.w,
+        h: frame.h,
+    };
+    return moveWindow(win, target);
+}
+
+/**
+ * 取某个 Space 上被系统平铺（钉住）的窗口。
+ *
+ * @returns {Array<{id: number, rect: {x,y,w,h}}>}
+ */
+function pinnedRects(spaceId) {
+    const result = [];
+    for (const [id, info] of state.pinned) {
+        if (!info || info.space !== spaceId) continue;
+        const win = state.tracked.get(id);
+        if (!win) continue;
+        const frame = win.frame;
+        if (!frame) continue;
+        result.push({ id, rect: { x: frame.x, y: frame.y, w: frame.w, h: frame.h } });
+    }
+    return result;
+}
+
 
 /**
  * 铺一列——按它是不是手风琴来决定用哪种铺法。
@@ -638,6 +824,9 @@ module.exports = {
     tileSpace,
     reindex,
     columnOf,
+    pinnedRects,
+    freeBands,
+    centerAnchor,
     pruneDeadWindows,
     currentSpaceId,
 };
